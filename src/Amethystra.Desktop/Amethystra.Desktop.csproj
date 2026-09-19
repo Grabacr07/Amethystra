@@ -15,9 +15,6 @@
     <PackageProjectUrl>https://github.com/Grabacr07/Amethystra</PackageProjectUrl>
     <PackageLicenseFile>..\..\LICENSE.txt</PackageLicenseFile>
     <PackageReadmeFile>..\..\README.md</PackageReadmeFile>
-    <ThemeResourceKeyGeneratorProject>$(MSBuildThisFileDirectory)..\..\tools\ThemeResourceKeyGen\ThemeResourceKeyGen.csproj</ThemeResourceKeyGeneratorProject>
-    <ThemeResourceKeyGeneratorTargetFramework>net10.0-windows</ThemeResourceKeyGeneratorTargetFramework>
-    <ThemeResourceKeyGeneratorExecutable>$(MSBuildThisFileDirectory)..\..\tools\ThemeResourceKeyGen\bin\$(Configuration)\$(ThemeResourceKeyGeneratorTargetFramework)\ThemeResourceKeyGen.exe</ThemeResourceKeyGeneratorExecutable>
     <GeneratedThemeResourceKeysFile>$(BaseIntermediateOutputPath)Generated\ThemeResourceKeys.g.cs</GeneratedThemeResourceKeysFile>
   </PropertyGroup>
 
@@ -35,28 +32,33 @@
   <ItemGroup>
     <ProjectReference Include="..\Amethystra.CodeAnalysis\Amethystra.CodeAnalysis.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Amethystra\Amethystra.csproj" />
+    <!--
+      The generator is referenced as a project so that it takes part in the restore graph
+      and the build order, and so that its output path is taken from the build itself.
+      This keeps the generation working under any output layout (e.g. dotnet build with artifacts-path).
+    -->
+    <ProjectReference Include="..\..\tools\ThemeResourceKeyGen\ThemeResourceKeyGen.csproj" OutputItemType="ThemeResourceKeyGenerator" ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 
-  <Target Name="BuildThemeResourceKeyGenerator" Condition="'$(TargetFramework)' != ''">
-    <MSBuild Projects="$(ThemeResourceKeyGeneratorProject)" Targets="Build" Properties="Configuration=$(Configuration)" />
-  </Target>
-
-  <Target Name="GenerateThemeResourceKeys" BeforeTargets="CoreCompile" Condition="'$(TargetFramework)' != ''" DependsOnTargets="BuildThemeResourceKeyGenerator">
+  <Target Name="GenerateThemeResourceKeys" BeforeTargets="CoreCompile" Condition="'$(TargetFramework)' != ''" DependsOnTargets="ResolveProjectReferences">
     <ItemGroup>
       <_WpfUiPackageReference Include="@(PackageReference)" Condition="'%(Identity)' == 'WPF-UI'" />
     </ItemGroup>
 
     <PropertyGroup>
       <_WpfUiAssemblyPath>$(NuGetPackageRoot)wpf-ui\%(_WpfUiPackageReference.Version)\lib\net10.0-windows7.0\Wpf.Ui.dll</_WpfUiAssemblyPath>
+      <_ThemeResourceKeyGeneratorExecutable>@(ThemeResourceKeyGenerator->'%(RootDir)%(Directory)%(Filename).exe')</_ThemeResourceKeyGeneratorExecutable>
     </PropertyGroup>
 
     <Error Condition="'%(_WpfUiPackageReference.Version)' == ''" Text="Wpf.Ui package reference was not found." />
     <Error Condition="Exists('$(_WpfUiAssemblyPath)') == false" Text="Wpf.Ui assembly was not found at $(_WpfUiAssemblyPath)." />
+    <!-- Design-time builds do not build project references, so the generator may not exist yet. -->
+    <Error Condition="'$(DesignTimeBuild)' != 'true' And Exists('$(_ThemeResourceKeyGeneratorExecutable)') == false" Text="Theme resource key generator was not found at $(_ThemeResourceKeyGeneratorExecutable)." />
 
-    <Exec Command="&quot;$(ThemeResourceKeyGeneratorExecutable)&quot; --assembly-path &quot;$(_WpfUiAssemblyPath)&quot; --output-path &quot;$(GeneratedThemeResourceKeysFile)&quot; --namespace &quot;Amethystra.UI.Markup&quot;" />
+    <Exec Condition="Exists('$(_ThemeResourceKeyGeneratorExecutable)')" Command="&quot;$(_ThemeResourceKeyGeneratorExecutable)&quot; --assembly-path &quot;$(_WpfUiAssemblyPath)&quot; --output-path &quot;$(GeneratedThemeResourceKeysFile)&quot; --namespace &quot;Amethystra.UI.Markup&quot;" />
 
     <ItemGroup>
-      <Compile Include="$(GeneratedThemeResourceKeysFile)" Visible="false" />
+      <Compile Include="$(GeneratedThemeResourceKeysFile)" Condition="Exists('$(GeneratedThemeResourceKeysFile)')" Visible="false" />
     </ItemGroup>
   </Target>
 
